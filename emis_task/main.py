@@ -17,12 +17,6 @@ logging.basicConfig(
 def extract_data_from_entry(entry):
     """
     Extract relevant patient or encounter information from a single JSON entry.
-
-    Args:
-    - entry (dict): A dictionary containing patient or encounter data.
-
-    Returns:
-    - dict: A dictionary with type ("Patient" or "Encounter") and the data extracted or None if error occurs.
     """
     try:
         resource = entry["resource"]
@@ -62,12 +56,6 @@ def extract_data_from_entry(entry):
 def process_file(file_path):
     """
     Process a JSON file to extract patient and encounter data.
-
-    Args:
-    - file_path (str): The path to the JSON file.
-
-    Returns:
-    - dict: A dictionary containing the path of the file, extracted patients, encounters and any errors.
     """
     try:
         with open(file_path, "r") as file:

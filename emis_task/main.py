@@ -5,6 +5,7 @@ from multiprocessing import Pool
 import sqlalchemy as db
 from sqlalchemy.exc import SQLAlchemyError
 from dotenv import load_dotenv
+from sqlalchemy.dialects.sqlite import insert
 
 load_dotenv()
 
@@ -14,33 +15,48 @@ logging.basicConfig(
 )
 
 
+def safe_insert(conn, table, records, unique_column):
+    """
+    Safely insert records into the specified table, ignoring duplicate
+    s based on the specified unique column.
+
+    Args:
+    - conn: Database connection object from SQLAlchemy.
+    - table: SQLAlchemy Table object to insert records into.
+    - records: List of dictionaries, each representing a record to be inserted.
+    - unique_column: The column name that has a UNIQUE constraint.
+    """
+    if not records:
+        return  # No records to process
+
+    for record in records:
+        stmt = insert(table).values(**record)
+        do_nothing_stmt = stmt.on_conflict_do_nothing(index_elements=[unique_column])
+        try:
+            conn.execute(do_nothing_stmt)
+        except SQLAlchemyError as e:
+            logging.error(f"Failed to insert record {record}: {e}")
+
+
 def extract_data_from_entry(entry):
     """
     Extract relevant patient or encounter information from a single JSON entry.
     """
     try:
         resource = entry["resource"]
-        if resource["resourceType"] == "Patient":
+        resource_type = resource["resourceType"]
+        if resource_type == "Patient":
             patient = {
                 "ID": resource["id"],
                 "Name": f"{resource['name'][0]['family']}, {' '.join(resource['name'][0]['given'])}",
                 "Gender": resource["gender"],
                 "Birth Date": resource["birthDate"],
-                "Deceased DateTime": resource.get("deceasedDateTime", None),
-                "Marital Status": resource.get("maritalStatus", {}).get("text", None),
+                "Deceased DateTime": resource.get("deceasedDateTime"),
+                "Marital Status": resource.get("maritalStatus", {}).get("text"),
+                "Address": format_address(resource.get("address", [{}])[0]),
             }
-            if "address" in resource:
-                patient["Address"] = (
-                    " ".join(resource["address"][0].get("line", []))
-                    + ", "
-                    + resource["address"][0].get("city", "")
-                    + ", "
-                    + resource["address"][0].get("state", "")
-                    + ", "
-                    + resource["address"][0].get("country", "")
-                )
             return {"type": "Patient", "data": patient}
-        elif resource["resourceType"] == "Encounter":
+        elif resource_type == "Encounter":
             encounter = {
                 "Encounter ID": resource["id"],
                 "Status": resource["status"],
@@ -53,6 +69,22 @@ def extract_data_from_entry(entry):
     return None
 
 
+def format_address(address):
+    """Helper function to format address field."""
+    if not address:
+        return None
+
+    # Construct the address string from components,
+    # handling missing parts
+    line = ", ".join(address.get("line", []))
+    city = address.get("city", "")
+    state = address.get("state", "")
+    country = address.get("country", "")
+
+    formatted_address = f"{line}, {city}, {state}, {country}"
+    return formatted_address.strip(", ")
+
+
 def process_file(file_path):
     """
     Process a JSON file to extract patient and encounter data.
@@ -60,15 +92,18 @@ def process_file(file_path):
     try:
         with open(file_path, "r") as file:
             data = json.load(file)
-        patients = []
-        encounters = []
-        for entry in data.get("entry", []):
-            result = extract_data_from_entry(entry)
-            if result:
-                if result["type"] == "Patient":
-                    patients.append(result["data"])
-                elif result["type"] == "Encounter":
-                    encounters.append(result["data"])
+        patients = [
+            extract_data_from_entry(entry)["data"]
+            for entry in data.get("entry", [])
+            if extract_data_from_entry(entry)
+            and extract_data_from_entry(entry)["type"] == "Patient"
+        ]
+        encounters = [
+            extract_data_from_entry(entry)["data"]
+            for entry in data.get("entry", [])
+            if extract_data_from_entry(entry)
+            and extract_data_from_entry(entry)["type"] == "Encounter"
+        ]
         return {
             "file": file_path,
             "patients": patients,
@@ -112,10 +147,10 @@ def setup_database():
     return engine, patients, encounters
 
 
-def main(directory):
+def process_directory(directory):
     """
-    Main execution function to process all JSON files in a directory and store the data into a database.
-
+    Main function to process all JSON files in a
+    directory and store the data into a database.
     Args:
     - directory (str): The directory containing JSON files.
     """
@@ -133,8 +168,10 @@ def main(directory):
                 continue
             with engine.begin() as conn:
                 try:
-                    conn.execute(patients_table.insert(), result["patients"])
-                    conn.execute(encounters_table.insert(), result["encounters"])
+                    safe_insert(conn, patients_table, result["patients"], "ID")
+                    safe_insert(
+                        conn, encounters_table, result["encounters"], "Encounter ID"
+                    )
                 except SQLAlchemyError as e:
                     logging.error(f"Database error: {e}")
         logging.info(
@@ -143,4 +180,6 @@ def main(directory):
 
 
 if __name__ == "__main__":
-    main(os.getenv("DIRECTORY_PATH", "emis_task/exa-data-eng-assessment/data/"))
+    process_directory(
+        os.getenv("DIRECTORY_PATH", "emis_task/exa-data-eng-assessment/data/")
+    )

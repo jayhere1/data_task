@@ -12,6 +12,12 @@ services:
     networks:
       - app-network
 
+  test_service:
+    build: .
+    volumes:
+      - .:/usr/src/app
+    command: ["poetry", "run", "pytest"]
+
 
 networks:
   app-network:

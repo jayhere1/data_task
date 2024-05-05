@@ -1,77 +1,158 @@
-import pandas as pd
 import json
 import os
+import logging
+from multiprocessing import Pool
+import sqlalchemy as db
+from sqlalchemy.exc import SQLAlchemyError
+from dotenv import load_dotenv
 
-with open(
-    "emis_task/exa-data-eng-assessment/data/Aaron697_Dickens475_8c95253e-8ee8-9ae8-6d40-021d702dc78e.json"
-) as file:
-    data = json.load(file)
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
 
-patients = []
-encounters = []
+def extract_data_from_entry(entry):
+    """
+    Extract relevant patient or encounter information from a single JSON entry.
 
-# Loop through each entry in the JSON data
-for entry in data["entry"]:
-    resource = entry["resource"]
+    Args:
+    - entry (dict): A dictionary containing patient or encounter data.
 
-    # Process patient resources
-    if resource["resourceType"] == "Patient":
-        patient = {
-            "ID": resource["id"],
-            "Name": f"{resource['name'][0]['family']}, {' '.join(resource['name'][0]['given'])}",
-            "Gender": resource["gender"],
-            "Birth Date": resource["birthDate"],
-            "Deceased DateTime": resource.get("deceasedDateTime", None),
-            "Marital Status": resource["maritalStatus"]["text"]
-            if "maritalStatus" in resource
-            else None,
+    Returns:
+    - dict: A dictionary with type ("Patient" or "Encounter") and the data extracted or None if error occurs.
+    """
+    try:
+        resource = entry["resource"]
+        if resource["resourceType"] == "Patient":
+            patient = {
+                "ID": resource["id"],
+                "Name": f"{resource['name'][0]['family']}, {' '.join(resource['name'][0]['given'])}",
+                "Gender": resource["gender"],
+                "Birth Date": resource["birthDate"],
+                "Deceased DateTime": resource.get("deceasedDateTime", None),
+                "Marital Status": resource.get("maritalStatus", {}).get("text", None),
+            }
+            if "address" in resource:
+                patient["Address"] = (
+                    " ".join(resource["address"][0].get("line", []))
+                    + ", "
+                    + resource["address"][0].get("city", "")
+                    + ", "
+                    + resource["address"][0].get("state", "")
+                    + ", "
+                    + resource["address"][0].get("country", "")
+                )
+            return {"type": "Patient", "data": patient}
+        elif resource["resourceType"] == "Encounter":
+            encounter = {
+                "Encounter ID": resource["id"],
+                "Status": resource["status"],
+                "Type": resource.get("type", [{}])[0].get("text", "Unknown"),
+                "Patient ID": resource["subject"]["reference"].split(":")[-1],
+            }
+            return {"type": "Encounter", "data": encounter}
+    except KeyError as e:
+        logging.error(f"Missing key {e} in JSON entry: {entry}")
+    return None
+
+
+def process_file(file_path):
+    """
+    Process a JSON file to extract patient and encounter data.
+
+    Args:
+    - file_path (str): The path to the JSON file.
+
+    Returns:
+    - dict: A dictionary containing the path of the file, extracted patients, encounters and any errors.
+    """
+    try:
+        with open(file_path, "r") as file:
+            data = json.load(file)
+        patients = []
+        encounters = []
+        for entry in data.get("entry", []):
+            result = extract_data_from_entry(entry)
+            if result:
+                if result["type"] == "Patient":
+                    patients.append(result["data"])
+                elif result["type"] == "Encounter":
+                    encounters.append(result["data"])
+        return {
+            "file": file_path,
+            "patients": patients,
+            "encounters": encounters,
+            "error": None,
         }
+    except (IOError, json.JSONDecodeError) as e:
+        logging.error(f"Error processing file {file_path}: {e}")
+        return {"file": file_path, "error": str(e)}
 
-        # Address information
-        if "address" in resource:
-            patient["Address"] = {
-                "Line": resource["address"][0]["line"],
-                "City": resource["address"][0]["city"],
-                "State": resource["address"][0]["state"],
-                "Country": resource["address"][0]["country"],
-            }
 
-        # Extensions
-        patient["Extensions"] = {}
-        for extension in resource["extension"]:
-            if "valueString" in extension:
-                patient["Extensions"][extension["url"]] = extension["valueString"]
-            elif "valueDecimal" in extension:
-                patient["Extensions"][extension["url"]] = extension["valueDecimal"]
-            elif "valueCode" in extension:
-                patient["Extensions"][extension["url"]] = extension["valueCode"]
-            elif "valueAddress" in extension:
-                patient["Extensions"][extension["url"]] = {
-                    "City": extension["valueAddress"]["city"],
-                    "State": extension["valueAddress"]["state"],
-                    "Country": extension["valueAddress"]["country"],
-                }
+def setup_database():
+    """
+    Setup database connection and define schema for patients and encounters.
 
-        # Add the patient information to the list
-        patients.append(patient)
-    elif resource["resourceType"] == "Encounter":
-        encounter_id = resource["id"]
-        status = resource["status"]
-        encounter_type = (
-            resource["type"][0]["text"] if "type" in resource else "Unknown"
+    Returns:
+    - tuple: A tuple containing the database engine and table objects for patients and encounters.
+    """
+    engine = db.create_engine(os.getenv("DATABASE_URL", "sqlite:///processed_data.db"))
+    metadata = db.MetaData()
+    patients = db.Table(
+        "patients",
+        metadata,
+        db.Column("ID", db.String, primary_key=True),
+        db.Column("Name", db.String),
+        db.Column("Gender", db.String),
+        db.Column("Birth Date", db.String),
+        db.Column("Deceased DateTime", db.String),
+        db.Column("Marital Status", db.String),
+        db.Column("Address", db.String),
+    )
+    encounters = db.Table(
+        "encounters",
+        metadata,
+        db.Column("Encounter ID", db.String, primary_key=True),
+        db.Column("Status", db.String),
+        db.Column("Type", db.String),
+        db.Column("Patient ID", db.String, db.ForeignKey("patients.ID")),
+    )
+    metadata.create_all(engine)
+    return engine, patients, encounters
+
+
+def main(directory):
+    """
+    Main execution function to process all JSON files in a directory and store the data into a database.
+
+    Args:
+    - directory (str): The directory containing JSON files.
+    """
+    engine, patients_table, encounters_table = setup_database()
+    files = [
+        os.path.join(directory, f) for f in os.listdir(directory) if f.endswith(".json")
+    ]
+    batch_size = 1000
+    for i in range(0, len(files), batch_size):
+        batch_files = files[i : i + batch_size]
+        with Pool(processes=4) as pool:
+            batch_results = pool.map(process_file, batch_files)
+        for result in batch_results:
+            if result["error"]:
+                continue
+            with engine.begin() as conn:
+                try:
+                    conn.execute(patients_table.insert(), result["patients"])
+                    conn.execute(encounters_table.insert(), result["encounters"])
+                except SQLAlchemyError as e:
+                    logging.error(f"Database error: {e}")
+        logging.info(
+            f"Processed batch {i // batch_size + 1}/{(len(files) // batch_size) + 1}"
         )
-        patient_ref = resource["subject"]["reference"]
-        encounters.append(
-            {
-                "Encounter ID": encounter_id,
-                "Status": status,
-                "Type": encounter_type,
-                "Patient ID": patient_ref.split(":")[-1],
-            }
-        )
-# Print the list of patients
-# for patient in patients:
-#     print(patient)
-# for encounter in encounters:
-#     print(encounter)
+
+
+if __name__ == "__main__":
+    main(os.getenv("DIRECTORY_PATH", "emis_task/exa-data-eng-assessment/data/"))

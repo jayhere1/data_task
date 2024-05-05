@@ -7,7 +7,10 @@ readme = "README.md"
 
 [tool.poetry.dependencies]
 python = "^3.12"
-pandas = "^2.2.2"
+isort = "^5.13.2"
+sqlalchemy = "^2.0.29"
+pymysql = "^1.1.0"
+python-dotenv = "^1.0.1"
 
 
 [build-system]

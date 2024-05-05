@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  json_processor:
+    build: .
+    volumes:
+      - ./emis_task/exa-data-eng-assessment/data:/data  # Directory for JSON files
+      - ./sqlite_db:/db  # Local directory for SQLite DB
+    environment:
+      - DIRECTORY_PATH=/data
+      - DATABASE_URL=sqlite:////db/processed_data.db  # SQLite DB path inside the container
+    networks:
+      - app-network
+
+
+networks:
+  app-network:
+    driver: bridge

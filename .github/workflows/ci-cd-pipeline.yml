@@ -57,8 +57,10 @@ jobs:
 
   deploy:
     needs: test
+    name: Deploy to Production
+    if: github.event_name == 'workflow_dispatch'  # This will only trigger on manual dispatch
+
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - uses: actions/checkout@v2
       - name: Setup Terraform

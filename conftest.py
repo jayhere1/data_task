@@ -1,6 +1,6 @@
-'''
+"""
 This module contains the configuration for the test suite.
-'''
+"""
 
 import pytest
 from sqlalchemy import (
@@ -59,8 +59,7 @@ def setup_test_database():
     """
     engine = create_engine("sqlite:///:memory:")
     metadata = MetaData()
-    session_local = sessionmaker(autocommit=False,
-                                 autoflush=False, bind=engine)
+    session_local = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     # Create the tables
     patients = Table(
         "patients",
@@ -133,9 +132,9 @@ def mock_files(tmp_path):
 
 @pytest.fixture
 def mock_table():
-    '''
+    """
     Pytest fixture to create a mock table for testing database interactions.
-    '''
+    """
     metadata = MetaData()
     return Table(
         "test_table",

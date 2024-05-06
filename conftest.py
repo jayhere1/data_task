@@ -3,15 +3,8 @@ This module contains the configuration for the test suite.
 """
 
 import pytest
-from sqlalchemy import (
-    Column,
-    ForeignKey,
-    Integer,
-    MetaData,
-    String,
-    Table,
-    create_engine,
-)
+from sqlalchemy import (Column, ForeignKey, Integer, MetaData, String, Table,
+                        create_engine)
 from sqlalchemy.orm import sessionmaker
 
 

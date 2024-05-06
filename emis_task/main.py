@@ -1,11 +1,27 @@
+"""
+This module processes JSON files containing patient
+and encounter data, extracts key information, and inserts
+it into a SQLite database. It handles conflicts and maintains
+data integrity using SQLAlchemy and parallel processing with multiprocessing.
+
+Dependencies include json, logging, os, sqlalchemy, multiprocessing,
+and dotenv. Configuration is managed via environment variables.
+
+Usage:
+Execute the script from the command line, ensuring necessary
+environment variables are set in the .env file, like `DATABASE_URL`
+and `DIRECTORY_PATH`.
+"""
+
 import json
-import os
 import logging
+import os
 from multiprocessing import Pool
+
 import sqlalchemy as db
-from sqlalchemy.exc import SQLAlchemyError
 from dotenv import load_dotenv
 from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy.exc import SQLAlchemyError
 
 load_dotenv()
 
@@ -27,15 +43,30 @@ def safe_insert(conn, table, records, unique_column):
     - unique_column: The column name that has a UNIQUE constraint.
     """
     if not records:
-        return  # No records to process
+        return
 
     for record in records:
         stmt = insert(table).values(**record)
-        do_nothing_stmt = stmt.on_conflict_do_nothing(index_elements=[unique_column])
+        do_nothing_stmt = stmt.on_conflict_do_nothing(
+            index_elements=[unique_column])
         try:
             conn.execute(do_nothing_stmt)
         except SQLAlchemyError as e:
-            logging.error(f"Failed to insert record {record}: {e}")
+            logging.error("Failed to insert record %s: %s", record, e)
+
+
+def format_name(resource):
+    """
+    Extract and format the name from the given resource dictionary.
+    """
+    try:
+        family_name = resource["name"][0]["family"]
+        given_names = " ".join(resource["name"][0]["given"])
+
+        formatted_name = f"{family_name}, {given_names}"
+        return formatted_name
+    except KeyError as e:
+        raise KeyError(f"Missing key in resource: {e}") from e
 
 
 def extract_data_from_entry(entry):
@@ -48,11 +79,12 @@ def extract_data_from_entry(entry):
         if resource_type == "Patient":
             patient = {
                 "ID": resource["id"],
-                "Name": f"{resource['name'][0]['family']}, {' '.join(resource['name'][0]['given'])}",
+                "Name": format_name(resource),
                 "Gender": resource["gender"],
                 "Birth Date": resource["birthDate"],
                 "Deceased DateTime": resource.get("deceasedDateTime"),
-                "Marital Status": resource.get("maritalStatus", {}).get("text"),
+                "Marital Status": resource.get(
+                    "maritalStatus", {}).get("text"),
                 "Address": format_address(resource.get("address", [{}])[0]),
             }
             return {"type": "Patient", "data": patient}
@@ -65,7 +97,8 @@ def extract_data_from_entry(entry):
             }
             return {"type": "Encounter", "data": encounter}
     except KeyError as e:
-        logging.error(f"Missing key {e} in JSON entry: {entry}")
+        logging.error("Missing key %s in JSON entry: %s", e, entry)
+        raise KeyError(f"Missing key in JSON entry: {e}") from e
     return None
 
 
@@ -74,8 +107,6 @@ def format_address(address):
     if not address:
         return None
 
-    # Construct the address string from components,
-    # handling missing parts
     line = ", ".join(address.get("line", []))
     city = address.get("city", "")
     state = address.get("state", "")
@@ -90,7 +121,7 @@ def process_file(file_path):
     Process a JSON file to extract patient and encounter data.
     """
     try:
-        with open(file_path, "r") as file:
+        with open(file_path, "r", encoding="utf-8") as file:
             data = json.load(file)
         patients = [
             extract_data_from_entry(entry)["data"]
@@ -111,7 +142,7 @@ def process_file(file_path):
             "error": None,
         }
     except (IOError, json.JSONDecodeError) as e:
-        logging.error(f"Error processing file {file_path}: {e}")
+        logging.error("Error processing file %s: %s", file_path, e)
         return {"file": file_path, "error": str(e)}
 
 
@@ -120,9 +151,11 @@ def setup_database():
     Setup database connection and define schema for patients and encounters.
 
     Returns:
-    - tuple: A tuple containing the database engine and table objects for patients and encounters.
+    - tuple: A tuple containing the database engine
+    and table objects for patients and encounters.
     """
-    engine = db.create_engine(os.getenv("DATABASE_URL", "sqlite:///processed_data.db"))
+    engine = db.create_engine(os.getenv(
+        "DATABASE_URL", "sqlite:///processed_data.db"))
     metadata = db.MetaData()
     patients = db.Table(
         "patients",
@@ -156,11 +189,12 @@ def process_directory(directory):
     """
     engine, patients_table, encounters_table = setup_database()
     files = [
-        os.path.join(directory, f) for f in os.listdir(directory) if f.endswith(".json")
+        os.path.join(directory, f) for f in os.listdir(directory)
+        if f.endswith(".json")
     ]
     batch_size = 1000
     for i in range(0, len(files), batch_size):
-        batch_files = files[i : i + batch_size]
+        batch_files = files[i: i + batch_size]
         with Pool(processes=4) as pool:
             batch_results = pool.map(process_file, batch_files)
         for result in batch_results:
@@ -170,12 +204,16 @@ def process_directory(directory):
                 try:
                     safe_insert(conn, patients_table, result["patients"], "ID")
                     safe_insert(
-                        conn, encounters_table, result["encounters"], "Encounter ID"
+                        conn, encounters_table, result["encounters"],
+                        "Encounter ID"
                     )
                 except SQLAlchemyError as e:
-                    logging.error(f"Database error: {e}")
+                    logging.error("Database error: %s", e)
+
         logging.info(
-            f"Processed batch {i // batch_size + 1}/{(len(files) // batch_size) + 1}"
+            "Processed batch %d/%d",
+            i // batch_size + 1,
+            (len(files) // batch_size) + 1,
         )
 
 

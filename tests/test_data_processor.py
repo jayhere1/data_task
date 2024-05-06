@@ -1,11 +1,13 @@
-from emis_task.main import extract_data_from_entry, format_address, safe_insert
-import pytest
-import json
+"""
+Pytest tests
+"""
+
 import re
-from unittest.mock import patch
-import os
-from unittest import mock
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from emis_task.main import extract_data_from_entry, format_address, safe_insert
 
 
 def test_extract_data_patient(patient_entry):
@@ -27,9 +29,9 @@ def test_extract_data_encounter(encounter_entry):
 
 def test_database_inserts(setup_test_database):
     """Test database insert operations."""
-    engine, SessionLocal, patients, encounters = setup_test_database
+    _, session_local, patients, _ = setup_test_database
     # Create a new session
-    session = SessionLocal()
+    session = session_local()
     try:
         # Begin a transaction
         session.begin()
@@ -82,9 +84,9 @@ def test_extract_data_missing_fields(patient_entry):
 
 def test_concurrent_database_access(setup_test_database):
     """Test concurrent writes to the database to ensure data integrity."""
-    engine, SessionLocal, patients, encounters = setup_test_database
+    _, session_local, patients, _ = setup_test_database
     # Create a new session
-    session = SessionLocal()
+    session = session_local()
     session.begin()  # Mock concurrent database access
     session.execute(
         patients.insert(),

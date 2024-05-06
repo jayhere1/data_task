@@ -22,7 +22,7 @@ jobs:
         python -m pip install --upgrade pip
         pip install black isort
     - name: Run Black
-      run: black --check .
+      run: black --check . --exclude '/conftest.py'
     - name: Run isort
       run: isort --check-only .
 

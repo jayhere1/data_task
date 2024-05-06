@@ -23,15 +23,3 @@ black = "^24.4.2"
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
 
-[tool.black]
-line-length = 88
-include = '\.pyi?$'
-exclude = '''
-/(
-    .git
-    | build
-    | dist
-    | *.egg-info
-    | conftest\.py
-)/
-'''

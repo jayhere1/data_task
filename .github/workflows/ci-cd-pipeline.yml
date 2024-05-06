@@ -1,0 +1,71 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - main  # Trigger on pushes to the main branch
+  pull_request:
+    branches:
+      - main  # Trigger on pull requests to the main branch
+
+jobs:
+  code-style:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.8'
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install black isort
+    - name: Run Black
+      run: black --check .
+    - name: Run isort
+      run: isort --check-only .
+
+  build:
+    runs-on: ubuntu-latest
+    needs: code-style
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v1
+    - name: Build Docker Images
+      run: |
+        docker-compose -f docker-compose.yml build
+
+  test:
+    runs-on: ubuntu-latest
+    needs: build
+    services:
+      json_processor:
+        image: json_processor:latest  # Assuming this tag is used in docker-compose
+        options: >-
+          --volume "${{ github.workspace }}/emis_task/exa-data-eng-assessment/data:/data"
+          --volume "${{ github.workspace }}/sqlite_db:/db"
+          --env DIRECTORY_PATH=/data
+          --env DATABASE_URL=sqlite:////db/processed_data.db
+    steps:
+    - uses: actions/checkout@v2
+    - name: Run Tests
+      run: |
+        docker-compose up -d json_processor
+        docker-compose run --rm test_service
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v1
+        with:
+          terraform_version: 1.0.0
+      - name: Terraform Init
+        run: terraform init
+      - name: Terraform Apply
+        run: terraform apply -auto-approve

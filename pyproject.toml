@@ -32,6 +32,6 @@ exclude = '''
     | build
     | dist
     | *.egg-info
-    | conftest.py
+    | conftest\.py
 )/
 '''

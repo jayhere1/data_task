@@ -47,8 +47,7 @@ def safe_insert(conn, table, records, unique_column):
 
     for record in records:
         stmt = insert(table).values(**record)
-        do_nothing_stmt = stmt.on_conflict_do_nothing(
-            index_elements=[unique_column])
+        do_nothing_stmt = stmt.on_conflict_do_nothing(index_elements=[unique_column])
         try:
             conn.execute(do_nothing_stmt)
         except SQLAlchemyError as e:
@@ -83,8 +82,7 @@ def extract_data_from_entry(entry):
                 "Gender": resource["gender"],
                 "Birth Date": resource["birthDate"],
                 "Deceased DateTime": resource.get("deceasedDateTime"),
-                "Marital Status": resource.get(
-                    "maritalStatus", {}).get("text"),
+                "Marital Status": resource.get("maritalStatus", {}).get("text"),
                 "Address": format_address(resource.get("address", [{}])[0]),
             }
             return {"type": "Patient", "data": patient}
@@ -154,8 +152,7 @@ def setup_database():
     - tuple: A tuple containing the database engine
     and table objects for patients and encounters.
     """
-    engine = db.create_engine(os.getenv(
-        "DATABASE_URL", "sqlite:///processed_data.db"))
+    engine = db.create_engine(os.getenv("DATABASE_URL", "sqlite:///processed_data.db"))
     metadata = db.MetaData()
     patients = db.Table(
         "patients",
@@ -189,12 +186,11 @@ def process_directory(directory):
     """
     engine, patients_table, encounters_table = setup_database()
     files = [
-        os.path.join(directory, f) for f in os.listdir(directory)
-        if f.endswith(".json")
+        os.path.join(directory, f) for f in os.listdir(directory) if f.endswith(".json")
     ]
     batch_size = 1000
     for i in range(0, len(files), batch_size):
-        batch_files = files[i: i + batch_size]
+        batch_files = files[i : i + batch_size]
         with Pool(processes=4) as pool:
             batch_results = pool.map(process_file, batch_files)
         for result in batch_results:
@@ -204,8 +200,7 @@ def process_directory(directory):
                 try:
                     safe_insert(conn, patients_table, result["patients"], "ID")
                     safe_insert(
-                        conn, encounters_table, result["encounters"],
-                        "Encounter ID"
+                        conn, encounters_table, result["encounters"], "Encounter ID"
                     )
                 except SQLAlchemyError as e:
                     logging.error("Database error: %s", e)

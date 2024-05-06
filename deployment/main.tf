@@ -1,7 +1,32 @@
 provider "aws" {
-  region = "eu-west-1"
+  region = "us-east-1"
 }
 
+data "aws_ami" "ubuntu" {
+  most_recent = true
+
+  filter {
+    name   = "name"
+    values = ["ubuntu/images/hvm-ssd/ubuntu-jammy-22.04-amd64-server-*"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+
+  owners = ["099720109477"] # Canonical
+}
+
+resource "aws_instance" "web" {
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = "t3.micro"
+  key_name = "test-ec2"  # To be created before deployment
+
+  tags = {
+    Name = "JSONProcessor"
+  }
+}
 resource "aws_security_group" "app_sg" {
   name        = "json_data_processor_sg"
   description = "Security group for JSON data processor application"
@@ -33,11 +58,11 @@ resource "aws_security_group" "app_sg" {
 }
 
 resource "aws_instance" "app_instance" {
-  ami           = "ami-08d658f84a6d84a80"  # Ubuntu Server 20.04 LTS AMI for eu-west-1
-  instance_type = "t2.medium"
+  ami           = data.aws_ami.ubuntu.id
+  instance_type = "t2.micro"
   security_groups = [aws_security_group.app_sg.name]
 
-  key_name = "my-key"  # To be created before deployment
+  key_name = "test-ec2"  # To be created before deployment
 
   user_data = <<-EOF
               #!/bin/bash

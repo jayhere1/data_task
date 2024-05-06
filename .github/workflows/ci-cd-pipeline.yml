@@ -33,7 +33,7 @@ jobs:
     steps:
     - uses: actions/checkout@v4  # Update to match other steps
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v1
+      uses: docker/setup-buildx-action@v3
     - name: Build Docker Images
       run: |
         docker-compose -f docker-compose.yml build
@@ -57,9 +57,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4  # Update to match other steps
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v1
-        with:
-          terraform_version: 1.0.0
+        uses: hashicorp/setup-terraform@v3
       - name: Terraform Init
         run: terraform init
       - name: Terraform Apply

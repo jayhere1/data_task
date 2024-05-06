@@ -2,6 +2,9 @@
 
 # JSON Data Processor
 
+![CI/CD Pipeline](https://github.com/jayhere1/data_task/actions/workflows/ci-cd-pipeline.yml/badge.svg?branch=main)
+
+
 ## Overview
 This project processes JSON files containing medical data about patients and encounters, extracts relevant information, and stores it in a SQLite database. The script is implemented in Python and runs within a Docker environment, leveraging asynchronous operations for enhanced performance.
 
